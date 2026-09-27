@@ -207,14 +207,12 @@ public final class ChillZoneSpawn implements ModInitializer {
 
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
             if (SpawnProtection.contains(player)) {
-                player.displayClientMessage(
-                        Component.literal("🛡 SAFE ZONE").withStyle(ChatFormatting.GREEN, ChatFormatting.BOLD),
-                        true
+                player.sendOverlayMessage(
+                        Component.literal("🛡 SAFE ZONE").withStyle(ChatFormatting.GREEN, ChatFormatting.BOLD)
                 );
             } else {
-                player.displayClientMessage(
-                        Component.literal("⚔ PVP ZONE").withStyle(ChatFormatting.RED, ChatFormatting.BOLD),
-                        true
+                player.sendOverlayMessage(
+                        Component.literal("⚔ PVP ZONE").withStyle(ChatFormatting.RED, ChatFormatting.BOLD)
                 );
             }
         }

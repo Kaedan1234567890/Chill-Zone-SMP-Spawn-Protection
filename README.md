@@ -1,3 +1,13 @@
+# Chill Zone Spawn Protection 0.1.2-alpha
+
+Minecraft 26.2 compile hotfix for the spawn-protection mod.
+
+Changes from 0.1.1-alpha:
+- Fixed the 26.2 `ExplosionParticleInfo` package import.
+- Replaced removed `ServerPlayer.displayClientMessage(...)` calls with the 26.2 action-bar API `ServerPlayer.sendOverlayMessage(...)`.
+- Keeps the SAFE ZONE / PVP ZONE action bar behavior unchanged.
+- No intended changes to region geometry, protection rules, saved config, or `/spawn` commands.
+
 # Chill Zone Spawn Protection 0.1.0-alpha
 
 Minecraft 26.2 / Fabric server-side spawn and safe-zone mod.
