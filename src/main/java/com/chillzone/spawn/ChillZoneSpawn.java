@@ -80,6 +80,13 @@ public final class ChillZoneSpawn implements ModInitializer {
                     .then(Commands.literal("on").executes(ctx -> setProtection(ctx.getSource(), true)))
                     .then(Commands.literal("off").executes(ctx -> setProtection(ctx.getSource(), false))));
 
+            // Admin-only sound test so the two transition sounds can be verified
+            // without repeatedly crossing the safe-zone boundary.
+            spawn.then(Commands.literal("soundtest")
+                    .requires(Permissions::canAdmin)
+                    .then(Commands.literal("safe").executes(ctx -> testZoneSound(ctx.getSource(), true)))
+                    .then(Commands.literal("pvp").executes(ctx -> testZoneSound(ctx.getSource(), false))));
+
             spawn.then(Commands.literal("region")
                     .requires(Permissions::canAdmin)
                     .then(Commands.literal("pos1").executes(ctx -> setRegionCenter(ctx.getSource())))
@@ -369,19 +376,44 @@ public final class ChillZoneSpawn implements ModInitializer {
 
     private static void playZoneSound(MinecraftServer server, ServerPlayer player, boolean safeZone) {
         String playerName = player.getGameProfile().name();
+
+        // IMPORTANT: the old build used ~ ~ ~ from the SERVER command source.
+        // That placed the sound at the command source position instead of at the
+        // player crossing the boundary, which could make the sound completely
+        // inaudible. Use the player's exact coordinates as the sound origin.
+        String position = String.format(java.util.Locale.ROOT, "%.3f %.3f %.3f",
+                player.getX(), player.getY(), player.getZ());
+
         String command;
         if (safeZone) {
-            // Bright, short confirmation similar to the reference server clip.
-            command = "playsound minecraft:block.note_block.pling master " + playerName + " ~ ~ ~ 1.0 1.55 0.0";
+            // Bright confirmation when entering spawn.
+            command = "playsound minecraft:block.note_block.pling master " + playerName
+                    + " " + position + " 1.25 1.55 1.0";
         } else {
-            // Lower warning tone when stepping into the PvP zone.
-            command = "playsound minecraft:block.note_block.bass master " + playerName + " ~ ~ ~ 1.0 0.70 0.0";
+            // Lower warning tone when entering the PvP area.
+            command = "playsound minecraft:block.note_block.bass master " + playerName
+                    + " " + position + " 1.25 0.70 1.0";
         }
 
         server.getCommands().performPrefixedCommand(
                 server.createCommandSourceStack().withSuppressedOutput(),
                 command
         );
+    }
+
+    private static int testZoneSound(CommandSourceStack source, boolean safeZone) {
+        ServerPlayer player;
+        try {
+            player = source.getPlayerOrException();
+        } catch (Exception e) {
+            source.sendFailure(Component.literal("Run this sound test as a player."));
+            return 0;
+        }
+
+        playZoneSound(source.getServer(), player, safeZone);
+        source.sendSuccess(() -> Component.literal(
+                safeZone ? "Played Safe Zone sound." : "Played PvP Zone sound."), false);
+        return 1;
     }
 
     private static void sendZoneMessage(ServerPlayer player, boolean safeZone) {

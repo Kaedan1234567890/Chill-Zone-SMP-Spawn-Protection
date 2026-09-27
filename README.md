@@ -1,5 +1,13 @@
 # Chill Zone Spawn Protection 0.1.7-alpha
 
+## 0.1.10 sound fix
+- Fixed the actual cause of silent zone sounds: the previous `/playsound` command used `~ ~ ~` from the server command source, so the sound origin could be far away from the player.
+- Zone sounds are now emitted at the crossing player's exact coordinates and targeted to that player.
+- Enter Safe Zone: note-block pling. Enter PvP Zone: note-block bass.
+- Added OP-only `/spawn soundtest safe` and `/spawn soundtest pvp` so sounds can be tested immediately without crossing the boundary.
+- The sound is triggered in the same boundary-change branch as the 2.5-second SAFE ZONE / PVP ZONE message.
+
+
 Minecraft 26.2 / Fabric server-side spawn safe-zone mod.
 
 ## 0.1.7 changes
