@@ -55,3 +55,12 @@ Admin/OP:
 - `/spawn region preview on|off`
 - `/spawn region show`
 - `/spawn region clear`
+
+
+## 0.1.9-alpha sound reliability update
+- Reworked Safe Zone/PvP Zone transition sounds to use the vanilla `/playsound` command from the server command source.
+- Sounds now use the `master` category so they are not dependent on the player's Music or Players volume sliders.
+- Safe Zone: `minecraft:block.note_block.pling` (bright/high confirmation).
+- PvP Zone: `minecraft:block.note_block.bass` (lower warning tone).
+- Sounds still trigger only on an actual boundary crossing; they do not loop and do not play just for joining.
+- Keeps the 2.5-second action-bar messages, square-by-default region setup, and global region preview from 0.1.8.

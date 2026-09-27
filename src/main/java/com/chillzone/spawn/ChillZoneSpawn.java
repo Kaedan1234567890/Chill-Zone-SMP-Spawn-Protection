@@ -14,7 +14,6 @@ import net.minecraft.ChatFormatting;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.sounds.SoundEvents;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.Mob;
@@ -340,12 +339,12 @@ public final class ChillZoneSpawn implements ModInitializer {
                 ZONE_MESSAGE_TICKS.put(playerId, ZONE_MESSAGE_DURATION_TICKS);
 
                 // Play sounds only for a real boundary crossing, not simply logging in.
+                // Use the vanilla /playsound command from the server command source instead
+                // of ServerPlayer.playSound. This sends the sound through Minecraft's normal
+                // command packet path and uses the MASTER category, so it is not muted by a
+                // low Players/Music slider.
                 if (previous != null) {
-                    if (safeZone) {
-                        player.playSound(SoundEvents.PLAYER_LEVELUP, 1.0F, 1.45F);
-                    } else {
-                        player.playSound(SoundEvents.NOTE_BLOCK_BASS.value(), 1.0F, 0.70F);
-                    }
+                    playZoneSound(server, player, safeZone);
                 }
             }
 
@@ -365,6 +364,24 @@ public final class ChillZoneSpawn implements ModInitializer {
 
         LAST_ZONE_STATE.keySet().removeIf(id -> !online.contains(id));
         ZONE_MESSAGE_TICKS.keySet().removeIf(id -> !online.contains(id));
+    }
+
+
+    private static void playZoneSound(MinecraftServer server, ServerPlayer player, boolean safeZone) {
+        String playerName = player.getGameProfile().name();
+        String command;
+        if (safeZone) {
+            // Bright, short confirmation similar to the reference server clip.
+            command = "playsound minecraft:block.note_block.pling master " + playerName + " ~ ~ ~ 1.0 1.55 0.0";
+        } else {
+            // Lower warning tone when stepping into the PvP zone.
+            command = "playsound minecraft:block.note_block.bass master " + playerName + " ~ ~ ~ 1.0 0.70 0.0";
+        }
+
+        server.getCommands().performPrefixedCommand(
+                server.createCommandSourceStack().withSuppressedOutput(),
+                command
+        );
     }
 
     private static void sendZoneMessage(ServerPlayer player, boolean safeZone) {
