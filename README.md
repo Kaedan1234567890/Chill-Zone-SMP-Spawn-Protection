@@ -1,4 +1,10 @@
-# Chill Zone Spawn Protection 0.1.7-alpha
+# Chill Zone Spawn Protection 0.1.11-alpha
+
+## PvP Zone sound balance
+- Increased only the PvP Zone warning sound volume from `1.25` to `2.25`.
+- Safe Zone sound volume is unchanged because it was already loud enough.
+- `/spawn soundtest pvp` still lets you test the exact PvP sound instantly.
+- All region, preview, protection, and 2.5-second zone-message behavior is unchanged.
 
 ## 0.1.10 sound fix
 - Fixed the actual cause of silent zone sounds: the previous `/playsound` command used `~ ~ ~` from the server command source, so the sound origin could be far away from the player.

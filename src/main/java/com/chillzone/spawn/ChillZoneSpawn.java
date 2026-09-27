@@ -390,9 +390,9 @@ public final class ChillZoneSpawn implements ModInitializer {
             command = "playsound minecraft:block.note_block.pling master " + playerName
                     + " " + position + " 1.25 1.55 1.0";
         } else {
-            // Lower warning tone when entering the PvP area.
+            // Lower warning tone when entering the PvP area. Bass is naturally quieter, so use a stronger volume than the Safe Zone chime.
             command = "playsound minecraft:block.note_block.bass master " + playerName
-                    + " " + position + " 1.25 0.70 1.0";
+                    + " " + position + " 2.25 0.70 1.0";
         }
 
         server.getCommands().performPrefixedCommand(
