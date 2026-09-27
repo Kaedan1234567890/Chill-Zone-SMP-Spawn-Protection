@@ -15,7 +15,6 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
-import net.minecraft.sounds.SoundSource;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.Mob;
@@ -343,9 +342,9 @@ public final class ChillZoneSpawn implements ModInitializer {
                 // Play sounds only for a real boundary crossing, not simply logging in.
                 if (previous != null) {
                     if (safeZone) {
-                        player.playSound(SoundEvents.PLAYER_LEVELUP, SoundSource.PLAYERS, 1.0F, 1.45F);
+                        player.playSound(SoundEvents.PLAYER_LEVELUP, 1.0F, 1.45F);
                     } else {
-                        player.playSound(SoundEvents.NOTE_BLOCK_BASS.value(), SoundSource.PLAYERS, 1.0F, 0.70F);
+                        player.playSound(SoundEvents.NOTE_BLOCK_BASS.value(), 1.0F, 0.70F);
                     }
                 }
             }
