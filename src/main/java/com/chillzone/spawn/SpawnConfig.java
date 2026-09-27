@@ -34,7 +34,7 @@ final class SpawnConfig {
         double radius;
         boolean hasCenter;
         boolean hasEdge;
-        String shape = "circle";
+        String shape = "square";
     }
 
     void load() {

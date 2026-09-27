@@ -15,6 +15,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.Mob;
@@ -29,9 +30,9 @@ public final class ChillZoneSpawn implements ModInitializer {
     private static int mobSweepTicks;
     private static final Map<UUID, Boolean> LAST_ZONE_STATE = new ConcurrentHashMap<>();
     private static final Map<UUID, Integer> ZONE_MESSAGE_TICKS = new ConcurrentHashMap<>();
-    private static final Set<UUID> REGION_PREVIEW = ConcurrentHashMap.newKeySet();
+    private static volatile boolean REGION_PREVIEW_ENABLED;
     private static int previewTicks;
-    private static final int ZONE_MESSAGE_DURATION_TICKS = 30; // about 1.5 seconds
+    private static final int ZONE_MESSAGE_DURATION_TICKS = 50; // about 2.5 seconds
 
     @Override
     public void onInitialize() {
@@ -160,14 +161,18 @@ public final class ChillZoneSpawn implements ModInitializer {
         SpawnConfig.Region r = CONFIG.state().region;
         if (r == null) r = new SpawnConfig.Region();
         r.dimension = SpawnProtection.dimension(player.level());
-        r.centerX = player.getX();
-        r.centerZ = player.getZ();
+        // Snap selection points to block centers. This makes the protected boundary
+        // line up exactly with the selected blocks instead of fractional player coords.
+        r.centerX = Math.floor(player.getX()) + 0.5;
+        r.centerZ = Math.floor(player.getZ()) + 0.5;
         r.hasCenter = true;
         r.hasEdge = false;
         r.radius = 0.0;
+        // Every newly selected region starts as a square by default.
+        r.shape = "square";
         CONFIG.state().region = r;
         CONFIG.save();
-        source.sendSuccess(() -> Component.literal("Safe-zone center set here. Y is ignored; the zone is vertical from world bottom to top."), false);
+        source.sendSuccess(() -> Component.literal("Spawn region pos1 set to this block. Default shape is SQUARE; Y is ignored."), false);
         return 1;
     }
 
@@ -186,20 +191,26 @@ public final class ChillZoneSpawn implements ModInitializer {
             source.sendFailure(Component.literal("pos2 must be in the same dimension as pos1."));
             return 0;
         }
-        r.edgeX = player.getX();
-        r.edgeZ = player.getZ();
+        r.edgeX = Math.floor(player.getX()) + 0.5;
+        r.edgeZ = Math.floor(player.getZ()) + 0.5;
         double dx = r.edgeX - r.centerX;
         double dz = r.edgeZ - r.centerZ;
         r.radius = Math.sqrt(dx * dx + dz * dz);
-        if (r.shape == null || r.shape.isBlank()) r.shape = "circle";
-        r.hasEdge = r.radius >= 1.0;
+        if (r.shape == null || r.shape.isBlank()) r.shape = "square";
+        r.hasEdge = Math.abs(dx) >= 1.0 || Math.abs(dz) >= 1.0;
         CONFIG.save();
         if (!r.hasEdge) {
-            source.sendFailure(Component.literal("The edge must be at least 1 block from the center."));
+            source.sendFailure(Component.literal("pos2 must be on a different block from pos1."));
             return 0;
         }
-        double radius = r.radius;
-        source.sendSuccess(() -> Component.literal(String.format("Safe-zone radius set to %.1f blocks. It extends through the entire world height.", radius)), false);
+        if ("square".equalsIgnoreCase(r.shape)) {
+            int width = (int) Math.abs(Math.round(r.edgeX - r.centerX)) + 1;
+            int depth = (int) Math.abs(Math.round(r.edgeZ - r.centerZ)) + 1;
+            source.sendSuccess(() -> Component.literal("Square safe zone set from pos1 to pos2: " + width + " x " + depth + " blocks, full world height."), false);
+        } else {
+            double radius = r.radius;
+            source.sendSuccess(() -> Component.literal(String.format("Circle safe-zone radius set to %.1f blocks, full world height.", radius)), false);
+        }
         return 1;
     }
 
@@ -209,23 +220,31 @@ public final class ChillZoneSpawn implements ModInitializer {
             source.sendFailure(Component.literal("No spawn region has been defined."));
             return 0;
         }
-        source.sendSuccess(() -> Component.literal(String.format(
-                "Spawn region: center %.1f, %.1f | radius %.1f | shape %s | full world height | protection %s",
-                r.centerX, r.centerZ, r.radius, regionShape(r), CONFIG.state().protectionEnabled ? "ON" : "OFF")), false);
+        if ("square".equals(regionShape(r)) && r.hasEdge) {
+            int width = (int) Math.abs(Math.round(r.edgeX - r.centerX)) + 1;
+            int depth = (int) Math.abs(Math.round(r.edgeZ - r.centerZ)) + 1;
+            source.sendSuccess(() -> Component.literal(String.format(
+                    "Spawn region: SQUARE | pos1 %.1f, %.1f | pos2 %.1f, %.1f | %d x %d blocks | full world height | protection %s",
+                    r.centerX, r.centerZ, r.edgeX, r.edgeZ, width, depth, CONFIG.state().protectionEnabled ? "ON" : "OFF")), false);
+        } else {
+            source.sendSuccess(() -> Component.literal(String.format(
+                    "Spawn region: CIRCLE | center %.1f, %.1f | radius %.1f | full world height | protection %s",
+                    r.centerX, r.centerZ, r.radius, CONFIG.state().protectionEnabled ? "ON" : "OFF")), false);
+        }
         return 1;
     }
 
     private static int clearRegion(CommandSourceStack source) {
         CONFIG.state().protectionEnabled = false;
         CONFIG.state().region = null;
-        REGION_PREVIEW.clear();
+        REGION_PREVIEW_ENABLED = false;
         CONFIG.save();
         source.sendSuccess(() -> Component.literal("Spawn region cleared and protection disabled."), true);
         return 1;
     }
 
     private static String regionShape(SpawnConfig.Region r) {
-        return (r.shape == null || r.shape.isBlank()) ? "circle" : r.shape.toLowerCase();
+        return (r.shape == null || r.shape.isBlank()) ? "square" : r.shape.toLowerCase();
     }
 
     private static int setRegionShape(CommandSourceStack source, String shape) {
@@ -249,19 +268,17 @@ public final class ChillZoneSpawn implements ModInitializer {
             source.sendFailure(Component.literal("Set both region points first."));
             return 0;
         }
-        if (enabled) REGION_PREVIEW.add(player.getUUID());
-        else REGION_PREVIEW.remove(player.getUUID());
-        source.sendSuccess(() -> Component.literal("Spawn boundary preview " + (enabled ? "ON" : "OFF") + "."), false);
+        REGION_PREVIEW_ENABLED = enabled;
+        source.sendSuccess(() -> Component.literal("Global spawn boundary preview " + (enabled ? "ON" : "OFF") + ". Everyone in the region dimension can see it."), false);
         return 1;
     }
 
     private static void drawRegionPreview(MinecraftServer server) {
-        if (REGION_PREVIEW.isEmpty() || !SpawnProtection.ready()) return;
+        if (!REGION_PREVIEW_ENABLED || !SpawnProtection.ready()) return;
         SpawnConfig.Region r = CONFIG.state().region;
         String shape = regionShape(r);
 
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
-            if (!REGION_PREVIEW.contains(player.getUUID())) continue;
             if (!(player.level() instanceof ServerLevel level)) continue;
             if (!SpawnProtection.dimension(level).equals(r.dimension)) continue;
 
@@ -285,11 +302,12 @@ public final class ChillZoneSpawn implements ModInitializer {
     }
 
     private static void drawSquarePreview(ServerLevel level, ServerPlayer player, SpawnConfig.Region r, double y) {
-        double minX = r.centerX - r.radius;
-        double maxX = r.centerX + r.radius;
-        double minZ = r.centerZ - r.radius;
-        double maxZ = r.centerZ + r.radius;
-        double step = Math.max(1.0, (r.radius * 2.0) / 60.0);
+        double minX = Math.min(r.centerX, r.edgeX) - 0.5;
+        double maxX = Math.max(r.centerX, r.edgeX) + 0.5;
+        double minZ = Math.min(r.centerZ, r.edgeZ) - 0.5;
+        double maxZ = Math.max(r.centerZ, r.edgeZ) + 0.5;
+        double longest = Math.max(maxX - minX, maxZ - minZ);
+        double step = Math.max(1.0, longest / 60.0);
         for (double x = minX; x <= maxX; x += step) {
             level.sendParticles(player, ParticleTypes.FLAME, true, true, x, y, minZ, 1, 0.0, 0.0, 0.0, 0.0);
             level.sendParticles(player, ParticleTypes.FLAME, true, true, x, y, maxZ, 1, 0.0, 0.0, 0.0, 0.0);
@@ -325,9 +343,9 @@ public final class ChillZoneSpawn implements ModInitializer {
                 // Play sounds only for a real boundary crossing, not simply logging in.
                 if (previous != null) {
                     if (safeZone) {
-                        player.playSound(SoundEvents.PLAYER_LEVELUP, 0.35F, 1.65F);
+                        player.playSound(SoundEvents.PLAYER_LEVELUP, SoundSource.PLAYERS, 1.0F, 1.45F);
                     } else {
-                        player.playSound(SoundEvents.NOTE_BLOCK_BASS.value(), 0.55F, 0.80F);
+                        player.playSound(SoundEvents.NOTE_BLOCK_BASS.value(), SoundSource.PLAYERS, 1.0F, 0.70F);
                     }
                 }
             }
@@ -335,7 +353,7 @@ public final class ChillZoneSpawn implements ModInitializer {
             Integer ticks = ZONE_MESSAGE_TICKS.get(playerId);
             if (ticks != null) {
                 if (ticks <= 1) {
-                    // Clear our own short-lived message after about 1.5 seconds. If another
+                    // Clear our own short-lived message after about 2.5 seconds. If another
                     // mod is actively updating the action bar (for example a combat timer),
                     // its next update immediately replaces this empty packet.
                     player.sendOverlayMessage(Component.empty());

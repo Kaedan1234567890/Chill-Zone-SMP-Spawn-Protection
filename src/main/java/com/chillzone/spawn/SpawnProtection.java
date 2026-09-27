@@ -18,7 +18,7 @@ public final class SpawnProtection {
     public static boolean ready() {
         if (config == null || config.state().region == null) return false;
         SpawnConfig.Region r = config.state().region;
-        return r.hasCenter && r.hasEdge && r.radius > 0.0 && r.dimension != null;
+        return r.hasCenter && r.hasEdge && r.dimension != null && (isSquare() || r.radius > 0.0);
     }
 
     public static boolean isSquare() {
@@ -30,11 +30,18 @@ public final class SpawnProtection {
         if (!enabled()) return false;
         SpawnConfig.Region r = config.state().region;
         if (!dimension(level).equals(r.dimension)) return false;
-        double dx = Math.abs(x - r.centerX);
-        double dz = Math.abs(z - r.centerZ);
         if (isSquare()) {
-            return dx <= r.radius && dz <= r.radius;
+            // For square mode, pos1 and pos2 are opposite block corners. The region
+            // includes the full selected blocks, so the boundary lines up exactly with
+            // block edges rather than with the player's fractional standing position.
+            double minX = Math.min(r.centerX, r.edgeX) - 0.5;
+            double maxX = Math.max(r.centerX, r.edgeX) + 0.5;
+            double minZ = Math.min(r.centerZ, r.edgeZ) - 0.5;
+            double maxZ = Math.max(r.centerZ, r.edgeZ) + 0.5;
+            return x >= minX && x < maxX && z >= minZ && z < maxZ;
         }
+        double dx = x - r.centerX;
+        double dz = z - r.centerZ;
         return dx * dx + dz * dz <= r.radius * r.radius;
     }
 
@@ -50,12 +57,17 @@ public final class SpawnProtection {
         if (!enabled()) return false;
         SpawnConfig.Region r = config.state().region;
         if (!dimension(level).equals(r.dimension)) return false;
-        double dx = Math.abs(x - r.centerX);
-        double dz = Math.abs(z - r.centerZ);
-        double reach = r.radius + Math.max(0.0F, blastRadius);
+        double blast = Math.max(0.0F, blastRadius);
         if (isSquare()) {
-            return dx <= reach && dz <= reach;
+            double minX = Math.min(r.centerX, r.edgeX) - 0.5 - blast;
+            double maxX = Math.max(r.centerX, r.edgeX) + 0.5 + blast;
+            double minZ = Math.min(r.centerZ, r.edgeZ) - 0.5 - blast;
+            double maxZ = Math.max(r.centerZ, r.edgeZ) + 0.5 + blast;
+            return x >= minX && x <= maxX && z >= minZ && z <= maxZ;
         }
+        double dx = x - r.centerX;
+        double dz = z - r.centerZ;
+        double reach = r.radius + blast;
         return dx * dx + dz * dz <= reach * reach;
     }
 

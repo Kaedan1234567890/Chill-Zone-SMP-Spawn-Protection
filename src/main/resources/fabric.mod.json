@@ -3,7 +3,7 @@
   "id": "chillzonespawn",
   "version": "${version}",
   "name": "Chill Zone Spawn Protection",
-  "description": "Persistent /spawn and vertical cylindrical safe-zone protection for Chill Zone SMP.",
+  "description": "Persistent /spawn and full-height square/circle safe-zone protection for Chill Zone SMP.",
   "authors": ["Chill Zone SMP"],
   "license": "MIT",
   "environment": "*",
