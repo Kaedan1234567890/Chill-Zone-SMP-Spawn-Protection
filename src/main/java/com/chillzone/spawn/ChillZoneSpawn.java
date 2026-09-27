@@ -14,14 +14,24 @@ import net.minecraft.ChatFormatting;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.Mob;
 
+import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 public final class ChillZoneSpawn implements ModInitializer {
     private static final SpawnConfig CONFIG = new SpawnConfig();
     private static int mobSweepTicks;
+    private static final Map<UUID, Boolean> LAST_ZONE_STATE = new ConcurrentHashMap<>();
+    private static final Map<UUID, Integer> ZONE_MESSAGE_TICKS = new ConcurrentHashMap<>();
+    private static final Set<UUID> REGION_PREVIEW = ConcurrentHashMap.newKeySet();
+    private static int previewTicks;
+    private static final int ZONE_MESSAGE_DURATION_TICKS = 30; // about 1.5 seconds
 
     @Override
     public void onInitialize() {
@@ -44,6 +54,10 @@ public final class ChillZoneSpawn implements ModInitializer {
 
         ServerTickEvents.END_SERVER_TICK.register(server -> {
             updatePlayerZoneMessages(server);
+            if (++previewTicks >= 10) {
+                previewTicks = 0;
+                drawRegionPreview(server);
+            }
             if (++mobSweepTicks >= 5) {
                 mobSweepTicks = 0;
                 removeMobsInside(server);
@@ -71,6 +85,12 @@ public final class ChillZoneSpawn implements ModInitializer {
                     .requires(Permissions::canAdmin)
                     .then(Commands.literal("pos1").executes(ctx -> setRegionCenter(ctx.getSource())))
                     .then(Commands.literal("pos2").executes(ctx -> setRegionEdge(ctx.getSource())))
+                    .then(Commands.literal("shape")
+                            .then(Commands.literal("circle").executes(ctx -> setRegionShape(ctx.getSource(), "circle")))
+                            .then(Commands.literal("square").executes(ctx -> setRegionShape(ctx.getSource(), "square"))))
+                    .then(Commands.literal("preview")
+                            .then(Commands.literal("on").executes(ctx -> setRegionPreview(ctx.getSource(), true)))
+                            .then(Commands.literal("off").executes(ctx -> setRegionPreview(ctx.getSource(), false))))
                     .then(Commands.literal("show").executes(ctx -> showRegion(ctx.getSource())))
                     .then(Commands.literal("clear").executes(ctx -> clearRegion(ctx.getSource()))));
 
@@ -171,6 +191,7 @@ public final class ChillZoneSpawn implements ModInitializer {
         double dx = r.edgeX - r.centerX;
         double dz = r.edgeZ - r.centerZ;
         r.radius = Math.sqrt(dx * dx + dz * dz);
+        if (r.shape == null || r.shape.isBlank()) r.shape = "circle";
         r.hasEdge = r.radius >= 1.0;
         CONFIG.save();
         if (!r.hasEdge) {
@@ -189,32 +210,155 @@ public final class ChillZoneSpawn implements ModInitializer {
             return 0;
         }
         source.sendSuccess(() -> Component.literal(String.format(
-                "Spawn region: center %.1f, %.1f | radius %.1f | vertical cylinder | protection %s",
-                r.centerX, r.centerZ, r.radius, CONFIG.state().protectionEnabled ? "ON" : "OFF")), false);
+                "Spawn region: center %.1f, %.1f | radius %.1f | shape %s | full world height | protection %s",
+                r.centerX, r.centerZ, r.radius, regionShape(r), CONFIG.state().protectionEnabled ? "ON" : "OFF")), false);
         return 1;
     }
 
     private static int clearRegion(CommandSourceStack source) {
         CONFIG.state().protectionEnabled = false;
         CONFIG.state().region = null;
+        REGION_PREVIEW.clear();
         CONFIG.save();
         source.sendSuccess(() -> Component.literal("Spawn region cleared and protection disabled."), true);
         return 1;
     }
 
-    private static void updatePlayerZoneMessages(MinecraftServer server) {
-        if (!SpawnProtection.enabled()) return;
+    private static String regionShape(SpawnConfig.Region r) {
+        return (r.shape == null || r.shape.isBlank()) ? "circle" : r.shape.toLowerCase();
+    }
+
+    private static int setRegionShape(CommandSourceStack source, String shape) {
+        SpawnConfig.Region r = CONFIG.state().region;
+        if (r == null || !r.hasCenter) {
+            source.sendFailure(Component.literal("Set /spawn region pos1 first."));
+            return 0;
+        }
+        r.shape = shape;
+        CONFIG.save();
+        source.sendSuccess(() -> Component.literal("Spawn region shape set to " + shape.toUpperCase() + ". Use /spawn region preview on to see the boundary."), false);
+        return 1;
+    }
+
+    private static int setRegionPreview(CommandSourceStack source, boolean enabled) {
+        ServerPlayer player;
+        try { player = source.getPlayerOrException(); }
+        catch (Exception e) { source.sendFailure(Component.literal("Run this command as a player.")); return 0; }
+
+        if (!SpawnProtection.ready()) {
+            source.sendFailure(Component.literal("Set both region points first."));
+            return 0;
+        }
+        if (enabled) REGION_PREVIEW.add(player.getUUID());
+        else REGION_PREVIEW.remove(player.getUUID());
+        source.sendSuccess(() -> Component.literal("Spawn boundary preview " + (enabled ? "ON" : "OFF") + "."), false);
+        return 1;
+    }
+
+    private static void drawRegionPreview(MinecraftServer server) {
+        if (REGION_PREVIEW.isEmpty() || !SpawnProtection.ready()) return;
+        SpawnConfig.Region r = CONFIG.state().region;
+        String shape = regionShape(r);
 
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
-            if (SpawnProtection.contains(player)) {
-                player.sendOverlayMessage(
-                        Component.literal("🛡 SAFE ZONE").withStyle(ChatFormatting.GREEN, ChatFormatting.BOLD)
-                );
+            if (!REGION_PREVIEW.contains(player.getUUID())) continue;
+            if (!(player.level() instanceof ServerLevel level)) continue;
+            if (!SpawnProtection.dimension(level).equals(r.dimension)) continue;
+
+            double y = player.getY() + 0.15;
+            if ("square".equals(shape)) {
+                drawSquarePreview(level, player, r, y);
             } else {
-                player.sendOverlayMessage(
-                        Component.literal("⚔ PVP ZONE").withStyle(ChatFormatting.RED, ChatFormatting.BOLD)
-                );
+                drawCirclePreview(level, player, r, y);
             }
+        }
+    }
+
+    private static void drawCirclePreview(ServerLevel level, ServerPlayer player, SpawnConfig.Region r, double y) {
+        int points = Math.max(32, Math.min(180, (int) Math.ceil(r.radius * 6.0)));
+        for (int i = 0; i < points; i++) {
+            double angle = (Math.PI * 2.0 * i) / points;
+            double x = r.centerX + Math.cos(angle) * r.radius;
+            double z = r.centerZ + Math.sin(angle) * r.radius;
+            level.sendParticles(player, ParticleTypes.FLAME, true, true, x, y, z, 1, 0.0, 0.0, 0.0, 0.0);
+        }
+    }
+
+    private static void drawSquarePreview(ServerLevel level, ServerPlayer player, SpawnConfig.Region r, double y) {
+        double minX = r.centerX - r.radius;
+        double maxX = r.centerX + r.radius;
+        double minZ = r.centerZ - r.radius;
+        double maxZ = r.centerZ + r.radius;
+        double step = Math.max(1.0, (r.radius * 2.0) / 60.0);
+        for (double x = minX; x <= maxX; x += step) {
+            level.sendParticles(player, ParticleTypes.FLAME, true, true, x, y, minZ, 1, 0.0, 0.0, 0.0, 0.0);
+            level.sendParticles(player, ParticleTypes.FLAME, true, true, x, y, maxZ, 1, 0.0, 0.0, 0.0, 0.0);
+        }
+        for (double z = minZ; z <= maxZ; z += step) {
+            level.sendParticles(player, ParticleTypes.FLAME, true, true, minX, y, z, 1, 0.0, 0.0, 0.0, 0.0);
+            level.sendParticles(player, ParticleTypes.FLAME, true, true, maxX, y, z, 1, 0.0, 0.0, 0.0, 0.0);
+        }
+    }
+
+    private static void updatePlayerZoneMessages(MinecraftServer server) {
+        if (!SpawnProtection.enabled()) {
+            LAST_ZONE_STATE.clear();
+            ZONE_MESSAGE_TICKS.clear();
+            return;
+        }
+
+        Set<UUID> online = new java.util.HashSet<>();
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            UUID playerId = player.getUUID();
+            online.add(playerId);
+
+            boolean safeZone = SpawnProtection.contains(player);
+            Boolean previous = LAST_ZONE_STATE.put(playerId, safeZone);
+
+            // Show the zone message only when the player first appears or actually crosses
+            // the boundary. It is no longer resent every tick, so other action-bar systems
+            // (such as the combat timer) can immediately take the action bar back.
+            if (previous == null || previous != safeZone) {
+                sendZoneMessage(player, safeZone);
+                ZONE_MESSAGE_TICKS.put(playerId, ZONE_MESSAGE_DURATION_TICKS);
+
+                // Play sounds only for a real boundary crossing, not simply logging in.
+                if (previous != null) {
+                    if (safeZone) {
+                        player.playSound(SoundEvents.PLAYER_LEVELUP, 0.35F, 1.65F);
+                    } else {
+                        player.playSound(SoundEvents.NOTE_BLOCK_BASS.value(), 0.55F, 0.80F);
+                    }
+                }
+            }
+
+            Integer ticks = ZONE_MESSAGE_TICKS.get(playerId);
+            if (ticks != null) {
+                if (ticks <= 1) {
+                    // Clear our own short-lived message after about 1.5 seconds. If another
+                    // mod is actively updating the action bar (for example a combat timer),
+                    // its next update immediately replaces this empty packet.
+                    player.sendOverlayMessage(Component.empty());
+                    ZONE_MESSAGE_TICKS.remove(playerId);
+                } else {
+                    ZONE_MESSAGE_TICKS.put(playerId, ticks - 1);
+                }
+            }
+        }
+
+        LAST_ZONE_STATE.keySet().removeIf(id -> !online.contains(id));
+        ZONE_MESSAGE_TICKS.keySet().removeIf(id -> !online.contains(id));
+    }
+
+    private static void sendZoneMessage(ServerPlayer player, boolean safeZone) {
+        if (safeZone) {
+            player.sendOverlayMessage(
+                    Component.literal("🛡 SAFE ZONE 🛡").withStyle(ChatFormatting.GREEN, ChatFormatting.BOLD)
+            );
+        } else {
+            player.sendOverlayMessage(
+                    Component.literal("⚔ PVP ZONE ⚔").withStyle(ChatFormatting.RED, ChatFormatting.BOLD)
+            );
         }
     }
 

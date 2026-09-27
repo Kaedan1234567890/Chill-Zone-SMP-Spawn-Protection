@@ -21,12 +21,20 @@ public final class SpawnProtection {
         return r.hasCenter && r.hasEdge && r.radius > 0.0 && r.dimension != null;
     }
 
+    public static boolean isSquare() {
+        if (config == null || config.state().region == null) return false;
+        return "square".equalsIgnoreCase(config.state().region.shape);
+    }
+
     public static boolean contains(ServerLevel level, double x, double z) {
         if (!enabled()) return false;
         SpawnConfig.Region r = config.state().region;
         if (!dimension(level).equals(r.dimension)) return false;
-        double dx = x - r.centerX;
-        double dz = z - r.centerZ;
+        double dx = Math.abs(x - r.centerX);
+        double dz = Math.abs(z - r.centerZ);
+        if (isSquare()) {
+            return dx <= r.radius && dz <= r.radius;
+        }
         return dx * dx + dz * dz <= r.radius * r.radius;
     }
 
@@ -42,9 +50,12 @@ public final class SpawnProtection {
         if (!enabled()) return false;
         SpawnConfig.Region r = config.state().region;
         if (!dimension(level).equals(r.dimension)) return false;
-        double dx = x - r.centerX;
-        double dz = z - r.centerZ;
+        double dx = Math.abs(x - r.centerX);
+        double dz = Math.abs(z - r.centerZ);
         double reach = r.radius + Math.max(0.0F, blastRadius);
+        if (isSquare()) {
+            return dx <= reach && dz <= reach;
+        }
         return dx * dx + dz * dz <= reach * reach;
     }
 

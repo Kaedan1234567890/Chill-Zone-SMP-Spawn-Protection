@@ -52,3 +52,17 @@ Combat restrictions for `/home` and fall-damage cleanup after home teleport shou
 - Inside the protected cylinder: **🛡 SAFE ZONE** in green/bold.
 - Outside the protected cylinder: **⚔ PVP ZONE** in red/bold.
 - The display follows the actual configured spawn-region boundary and does not spam normal chat.
+
+
+## 0.1.6-alpha zone feedback
+- Action bar now shows `🛡 SAFE ZONE 🛡` inside spawn and `⚔ PVP ZONE ⚔` outside.
+- Crossing from PvP into the safe zone plays a short positive chime.
+- Crossing from the safe zone into PvP plays a short lower warning tone.
+- Sounds play only on an actual boundary crossing, not every tick.
+- Joining/rejoining remembers the initial zone silently so the sound does not fire just because the player logged in.
+
+
+## 0.1.6 zone message timing
+- SAFE ZONE / PVP ZONE action-bar notices are now event-based instead of being resent every server tick.
+- The zone notice is cleared after about 30 ticks (1.5 seconds), allowing combat countdown/action-bar messages to remain visible.
+- Entry/exit sounds remain boundary-triggered only.
